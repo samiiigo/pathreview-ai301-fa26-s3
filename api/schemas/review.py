@@ -33,3 +33,18 @@ class ReviewListResponse(BaseModel):
     total: int
     page: int
     page_size: int
+
+
+class ReviewShareResponse(BaseModel):
+    """Capability returned only after an authenticated ownership check."""
+
+    token: str
+
+
+class SharedReviewResponse(BaseModel):
+    """Public summary that excludes profile identifiers and internal errors."""
+
+    overall_score: float | None
+    sections: list[FeedbackSection] | None
+
+    model_config = {"from_attributes": True}
