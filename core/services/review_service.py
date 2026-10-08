@@ -48,6 +48,22 @@ async def get_review(
     return result.scalars().first()
 
 
+async def get_shared_review(db, review_id: UUID) -> Review | None:
+    """Fetch a completed review after the caller validates a share token.
+
+    Args:
+        db: Database session.
+        review_id: Identifier obtained from a validated share token.
+
+    Returns:
+        The completed review, or None if unavailable.
+    """
+    result = await db.execute(
+        select(Review).where(Review.id == review_id, Review.status == "complete")
+    )
+    return result.scalars().first()
+
+
 async def list_reviews(
     db,
     user_id: UUID,

@@ -1,22 +1,84 @@
 from uuid import UUID
 
 import structlog
-from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, status
+from fastapi import APIRouter, BackgroundTasks, Depends, HTTPException, Response, status
 
 from api.middleware.auth import get_current_user
-from api.schemas.review import ReviewCreate, ReviewListResponse, ReviewResponse
+from api.schemas.review import (
+    ReviewCreate,
+    ReviewListResponse,
+    ReviewResponse,
+    ReviewShareResponse,
+    SharedReviewResponse,
+)
 from core.database import get_db
 from core.models.user import User
 from core.services.review_service import (
     create_review,
     get_review,
+    get_shared_review,
     list_reviews,
     process_review,
 )
+from core.services.share_service import create_review_share_token, decode_review_share_token
 
 log = structlog.get_logger()
 
 router = APIRouter(prefix="/reviews", tags=["reviews"])
+
+
+@router.post("/{review_id}/share", response_model=ReviewShareResponse)
+async def create_review_share(
+    review_id: UUID,
+    response: Response,
+    current_user: User = Depends(get_current_user),
+    db=Depends(get_db),
+):
+    """Create a 30-day capability for a completed review owned by the caller.
+
+    Args:
+        review_id: Review to share.
+        response: HTTP response used to prevent token caching.
+        current_user: Authenticated owner supplied by the auth dependency.
+        db: Database session.
+
+    Returns:
+        A signed review-share token.
+    """
+    review = await get_review(db=db, review_id=review_id, user_id=current_user.id)
+    if review is None:
+        raise HTTPException(status_code=404, detail="Review not found")
+    if review.status != "complete":
+        raise HTTPException(status_code=409, detail="Only completed reviews can be shared")
+    response.headers["Cache-Control"] = "no-store"
+    return ReviewShareResponse(token=create_review_share_token(review.id))
+
+
+@router.get("/shared/{token}", response_model=SharedReviewResponse)
+async def read_shared_review(token: str, response: Response, db=Depends(get_db)):
+    """Return only score and feedback for a valid public review capability.
+
+    Args:
+        token: Signed review-share token from the URL.
+        response: HTTP response used to prevent summary caching.
+        db: Database session.
+
+    Returns:
+        The referenced review's public summary.
+    """
+    unavailable = HTTPException(
+        status_code=404,
+        detail="This review link is invalid, expired, or unavailable",
+        headers={"Cache-Control": "no-store"},
+    )
+    review_id = decode_review_share_token(token)
+    if review_id is None:
+        raise unavailable
+    review = await get_shared_review(db=db, review_id=review_id)
+    if review is None or review.status != "complete":
+        raise unavailable
+    response.headers["Cache-Control"] = "no-store"
+    return SharedReviewResponse.model_validate(review)
 
 
 @router.post("", response_model=ReviewResponse)
