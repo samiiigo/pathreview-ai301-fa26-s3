@@ -4,6 +4,7 @@ import { Share2, Download, ArrowLeft, Loader } from 'lucide-react'
 import { useReviewStatus } from '../hooks/useReviewStatus'
 import { ReviewSection } from '../components/ReviewSection'
 import { apiClient } from '../services/api'
+import { createShareLink } from '../services/shareService'
 import { Review } from '../types'
 
 export const ReviewPage: React.FC = () => {
@@ -12,6 +13,9 @@ export const ReviewPage: React.FC = () => {
   const [fullReview, setFullReview] = useState<Review | null>(null)
   const { review: statusReview, isPolling, error } = useReviewStatus(reviewId || '')
   const [fetchError, setFetchError] = useState('')
+  const [isSharing, setIsSharing] = useState(false)
+  const [shareMessage, setShareMessage] = useState('')
+  const [shareError, setShareError] = useState('')
 
   useEffect(() => {
     if (!isPolling && statusReview?.status === 'complete') {
@@ -29,11 +33,20 @@ export const ReviewPage: React.FC = () => {
 
   const currentReview = fullReview || statusReview
 
-  const handleShare = () => {
-    const url = window.location.href
-    navigator.clipboard.writeText(url).then(() => {
-      alert('Review link copied to clipboard!')
-    })
+  const handleShare = async () => {
+    if (!reviewId || isSharing) return
+    setIsSharing(true)
+    setShareMessage('')
+    setShareError('')
+    try {
+      const url = await createShareLink(reviewId)
+      await navigator.clipboard.writeText(url)
+      setShareMessage('Review link copied! Anyone with the link can view this summary for 30 days.')
+    } catch {
+      setShareError('Unable to create or copy the review link. Please try again.')
+    } finally {
+      setIsSharing(false)
+    }
   }
 
   const handleExport = () => {
@@ -91,6 +104,9 @@ ${section.suggestions.map((s) => `- ${s}`).join('\n')}
           </div>
         )}
 
+        {shareMessage && <p role="status" className="mb-6 text-green-800">{shareMessage}</p>}
+        {shareError && <p role="alert" className="mb-6 text-red-800">{shareError}</p>}
+
         {isPolling && (
           <div className="mb-12 p-8 bg-white rounded-lg shadow text-center">
             <Loader className="w-8 h-8 animate-spin text-blue-600 mx-auto mb-4" />
@@ -113,10 +129,11 @@ ${section.suggestions.map((s) => `- ${s}`).join('\n')}
               <div className="flex items-center gap-3">
                 <button
                   onClick={handleShare}
+                  disabled={isSharing}
                   className="inline-flex items-center gap-2 px-4 py-2 border border-gray-300 hover:bg-gray-50 text-gray-700 font-medium rounded-lg transition-colors"
                 >
                   <Share2 className="w-5 h-5" />
-                  Share
+                  {isSharing ? 'Creating link...' : 'Copy link'}
                 </button>
                 <button
                   onClick={handleExport}
